@@ -89,7 +89,7 @@ pub fn build_plan(settings: &Settings, java: &JavaInstall, paths: &VoidPaths) ->
 }
 
 /// `java -Xms.. -Xmx.. [-XX:+UseZGC] <extra JVM args> -jar <jar> --address <host> --port <port>
-/// [--world n] [--keys file] [--toolkit hd|opengl|java] [--tile-markers ...]`
+/// [--world n] [--keys file] [--toolkit hd|opengl|java] [gameplay flags] [graphics flags] [--debug] <extra client args>`
 pub fn build_plan_with_memory(settings: &Settings, java: &JavaInstall, paths: &VoidPaths, physical_mb: Option<u64>) -> LaunchPlan {
     let (heap_mb, capped) = effective_heap_mb(settings.max_heap_mb(), physical_mb);
     let mut args: Vec<OsString> = Vec::new();
@@ -122,6 +122,13 @@ pub fn build_plan_with_memory(settings: &Settings, java: &JavaInstall, paths: &V
         args.push(toolkit.into());
     }
     args.extend(settings.extras.flags().into_iter().map(OsString::from));
+    args.extend(settings.graphics.args().into_iter().map(OsString::from));
+    if settings.debug {
+        args.push("--debug".into());
+    }
+    if let Some(extra) = shlex::split(&settings.extra_client_args) {
+        args.extend(extra.into_iter().map(OsString::from));
+    }
 
     let stamp = time::OffsetDateTime::now_utc()
         .format(&time::macros::format_description!("[year][month][day]-[hour][minute][second]"))
@@ -228,7 +235,7 @@ pub fn diagnose(log_tail: &str) -> Option<&'static str> {
 mod tests {
     use super::*;
     use crate::java::{Arch, JavaOrigin};
-    use crate::settings::{Extras, Renderer, Server};
+    use crate::settings::{Extras, FpsCap, Graphics, Msaa, Renderer, Scale, Server};
 
     fn java(major: u32, vm: VmKind) -> JavaInstall {
         JavaInstall {
@@ -264,10 +271,13 @@ mod tests {
             server: Server::Custom { host: "10.0.0.5".into(), port: 1234 },
             custom_keys: Some("/srv/game.properties".into()),
             renderer: Renderer::Hd,
-            extras: Extras { tile_markers: true, xp_drops: false, npc_labels: true, ground_items: false },
+            extras: Extras { tile_markers: true, npc_labels: true, shift_drop: false, ..Extras::default() },
+            graphics: Graphics { fps: FpsCap::Fps60, scale: Scale::X1, msaa: Msaa::X4, smaa: true, ..Graphics::default() },
             world: 2,
+            debug: true,
             max_heap_gb: 4,
             extra_jvm_args: "-Dfoo=1 -Dwindow.size=1280x900".into(),
+            extra_client_args: "--lang german".into(),
             ..Settings::default()
         };
         let plan = build_plan_with_memory(&settings, &java(21, VmKind::HotSpot), &paths, Some(32_000));
@@ -293,6 +303,17 @@ mod tests {
                 "hd",
                 "--tile-markers",
                 "--npc-labels",
+                "--no-shift-drop",
+                "--fps",
+                "60",
+                "--scale",
+                "1",
+                "--msaa",
+                "4",
+                "--smaa",
+                "--debug",
+                "--lang",
+                "german",
             ]
         );
         assert_eq!(plan.cwd, PathBuf::from("/home/u/.void"));
@@ -306,7 +327,7 @@ mod tests {
         let plan = build_plan_with_memory(&settings, &java(21, VmKind::OpenJ9), &paths, None);
         let args = args_of(&plan);
         assert!(!args.iter().any(|a| a == "-XX:+UseZGC"));
-        assert!(!args.iter().any(|a| a == "--toolkit" || a == "--world" || a == "--keys"));
+        assert!(!args.iter().any(|a| a == "--toolkit" || a == "--world" || a == "--keys" || a == "--debug" || a.starts_with("--no-") || a == "--fps"));
         assert_eq!(&args[args.len() - 4..], ["--address", "play.2011.rs", "--port", "43594"]);
         assert_eq!(args[0], "-Xms1024m");
         assert_eq!(args[1], "-Xmx2048m");

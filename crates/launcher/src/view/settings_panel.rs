@@ -7,7 +7,7 @@ use crate::links::Link;
 use crate::message::Message;
 use crate::state::{ClientState, HeapChoice, JavaSourceKind, JavaState, Panel, SelfUpdateState};
 use crate::theme::{self, style};
-use launcher_core::settings::{AfterLaunch, Extra, HEAP_CHOICES_GB};
+use launcher_core::settings::{AfterLaunch, Extra, FpsCap, HEAP_CHOICES_GB, Msaa, RenderDistance, RenderScale, Scale};
 use launcher_core::version::Channel;
 
 const DRAWER_WIDTH: f32 = 440.0;
@@ -25,7 +25,8 @@ pub fn settings_drawer(app: &App) -> Element<'_, Message> {
     .padding(Padding { top: 16.0, right: 22.0, bottom: 0.0, left: 22.0 })
     .width(Fill);
 
-    let sections = column![updates(app), game(app), java(app), performance(app), launcher(app), about(app)].spacing(26).width(Fill);
+    let sections =
+        column![updates(app), game(app), graphics(app), developer(app), java(app), performance(app), launcher(app), about(app)].spacing(26).width(Fill);
     let body = thin_scrollable(container(sections).padding(Padding { top: 18.0, right: 16.0, bottom: 22.0, left: 22.0 }).width(Fill)).width(Fill).height(Fill);
 
     let drawer = container(column![header, body].width(Fill).height(Fill)).style(style::drawer).width(Length::Fixed(DRAWER_WIDTH)).height(Fill);
@@ -106,9 +107,64 @@ fn game(app: &App) -> Element<'_, Message> {
         label("World"),
         world,
         vspace(4.0),
-        label("Extras"),
-        muted("Off by default, as in the client. Most can also be toggled in game with a :: command."),
+        label("Gameplay"),
+        muted("The client's own defaults are preselected. Most can also be toggled in game with a :: command."),
         extras,
+        vspace(4.0),
+        choice_row("Render distance", pick_list(&RenderDistance::ALL[..], Some(app.settings.graphics.render_distance), Message::RenderDistancePicked)),
+        faint("How far the world is drawn, as a multiple of the original distance."),
+    ]
+    .spacing(8)
+    .into()
+}
+
+/// A label on the left, a pick list on the right.
+fn choice_row<'a, T>(name: &str, list: iced::widget::PickList<'a, T, &'a [T], T, Message>) -> Element<'a, Message>
+where
+    T: ToString + PartialEq + Clone + 'a,
+{
+    row![label(name).width(Fill), list.padding([6, 12]).text_size(14).width(Length::Fixed(220.0)).style(style::pick_list_style).menu_style(style::menu_style)]
+        .align_y(Alignment::Center)
+        .width(Fill)
+        .into()
+}
+
+fn graphics(app: &App) -> Element<'_, Message> {
+    let g = &app.settings.graphics;
+    column![
+        section("Graphics"),
+        muted("Pick the graphics mode (Renderer) on the main screen. Anti-aliasing and supersampling apply to OpenGL and 634HD."),
+        choice_row("Frame rate cap", pick_list(&FpsCap::ALL[..], Some(g.fps), Message::FpsPicked)),
+        choice_row("Interface scale", pick_list(&Scale::ALL[..], Some(g.scale), Message::ScalePicked)),
+        choice_row("Anti-aliasing", pick_list(&Msaa::ALL[..], Some(g.msaa), Message::MsaaPicked)),
+        checkbox(g.smaa).label("SMAA edge smoothing (with or without MSAA)").on_toggle(Message::SmaaToggled).style(style::checkbox_style).text_size(14),
+        choice_row("Supersampling", pick_list(&RenderScale::ALL[..], Some(g.render_scale), Message::RenderScalePicked)),
+        faint("Draws the 3D view larger and shrinks it. Costs GPU time; try MSAA first."),
+    ]
+    .spacing(8)
+    .into()
+}
+
+fn developer(app: &App) -> Element<'_, Message> {
+    column![
+        section("Developer"),
+        checkbox(app.settings.debug).label("Developer overlay").on_toggle(Message::DebugToggled).style(style::checkbox_style).text_size(14),
+        container(faint("Ids and tile coordinates on right-click menus, and your position under ::displayfps.")).padding(Padding {
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+            left: 28.0
+        }),
+        vspace(2.0),
+        label("Extra client arguments"),
+        text_input("--lang german --dev-commands", &app.settings.extra_client_args)
+            .on_input(Message::ExtraClientArgsChanged)
+            .padding([8, 12])
+            .size(13)
+            .font(crate::theme::fonts::MONO)
+            .style(style::text_input_style)
+            .width(Fill),
+        faint("Appended last to the client's command line, so they win over everything above. See the client's README for the full list."),
     ]
     .spacing(8)
     .into()
@@ -211,7 +267,7 @@ fn performance(app: &App) -> Element<'_, Message> {
             .font(crate::theme::fonts::MONO)
             .style(style::text_input_style)
             .width(Fill),
-        faint("Passed to java before -jar. Client options (--fps, --scale, --msaa…) belong in the client's own settings, not here."),
+        faint("Passed to java before -jar. Client options belong under Game, Graphics and Developer, not here."),
     ]
     .spacing(8)
     .into()

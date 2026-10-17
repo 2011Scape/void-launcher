@@ -6,7 +6,7 @@ use launcher_core::java::{JavaInstall, JavaProblem};
 use launcher_core::launch::LaunchOutcome;
 use launcher_core::progress::Progress;
 use launcher_core::self_update::UpdateStatus;
-use launcher_core::settings::{Extra, Renderer};
+use launcher_core::settings::{Extra, FpsCap, Msaa, RenderDistance, RenderScale, Renderer, Scale};
 use launcher_core::version::Channel;
 
 use crate::links::Link;
@@ -31,6 +31,14 @@ pub enum Message {
     // game settings
     ExtraToggled(Extra, bool),
     WorldChanged(String),
+    RenderDistancePicked(RenderDistance),
+    FpsPicked(FpsCap),
+    ScalePicked(Scale),
+    MsaaPicked(Msaa),
+    SmaaToggled(bool),
+    RenderScalePicked(RenderScale),
+    DebugToggled(bool),
+    ExtraClientArgsChanged(String),
 
     // actions
     PlayPressed,

@@ -98,24 +98,36 @@ impl std::fmt::Display for Renderer {
     }
 }
 
-/// The client's optional extras, each a command-line switch.
+/// The client's gameplay switches. Some are on by default in the client and
+/// have a `--no-` flag; the launcher only emits a flag when the choice differs
+/// from the client's own default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Extra {
     TileMarkers,
     XpDrops,
     NpcLabels,
     GroundItems,
+    ShiftDrop,
+    Zoom,
 }
 
 impl Extra {
-    pub const ALL: [Extra; 4] = [Extra::TileMarkers, Extra::XpDrops, Extra::NpcLabels, Extra::GroundItems];
+    pub const ALL: [Extra; 6] = [Extra::TileMarkers, Extra::XpDrops, Extra::NpcLabels, Extra::GroundItems, Extra::ShiftDrop, Extra::Zoom];
 
+    /// What the client does when nothing is passed.
+    pub fn default_on(self) -> bool {
+        matches!(self, Extra::ShiftDrop | Extra::Zoom)
+    }
+
+    /// The flag that flips the client's default.
     pub fn flag(self) -> &'static str {
         match self {
             Extra::TileMarkers => "--tile-markers",
             Extra::XpDrops => "--xp-drops",
             Extra::NpcLabels => "--npc-labels",
             Extra::GroundItems => "--ground-items",
+            Extra::ShiftDrop => "--no-shift-drop",
+            Extra::Zoom => "--no-zoom",
         }
     }
 
@@ -125,6 +137,8 @@ impl Extra {
             Extra::XpDrops => "Experience drops",
             Extra::NpcLabels => "NPC labels",
             Extra::GroundItems => "Ground item labels",
+            Extra::ShiftDrop => "Shift-drop",
+            Extra::Zoom => "Wider zoom",
         }
     }
 
@@ -134,17 +148,27 @@ impl Extra {
             Extra::XpDrops => "A \"+N Skill\" drop rises near the minimap when you gain experience.",
             Extra::NpcLabels => "NPC names and combat levels above their heads.",
             Extra::GroundItems => "The names and counts of items on each tile.",
+            Extra::ShiftDrop => "Drop an item with Shift and a left click.",
+            Extra::Zoom => "Let the mouse wheel zoom further out than the original range.",
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Extras {
     pub tile_markers: bool,
     pub xp_drops: bool,
     pub npc_labels: bool,
     pub ground_items: bool,
+    pub shift_drop: bool,
+    pub zoom: bool,
+}
+
+impl Default for Extras {
+    fn default() -> Self {
+        Self { tile_markers: false, xp_drops: false, npc_labels: false, ground_items: false, shift_drop: true, zoom: true }
+    }
 }
 
 impl Extras {
@@ -154,6 +178,8 @@ impl Extras {
             Extra::XpDrops => self.xp_drops,
             Extra::NpcLabels => self.npc_labels,
             Extra::GroundItems => self.ground_items,
+            Extra::ShiftDrop => self.shift_drop,
+            Extra::Zoom => self.zoom,
         }
     }
 
@@ -163,12 +189,167 @@ impl Extras {
             Extra::XpDrops => self.xp_drops = on,
             Extra::NpcLabels => self.npc_labels = on,
             Extra::GroundItems => self.ground_items = on,
+            Extra::ShiftDrop => self.shift_drop = on,
+            Extra::Zoom => self.zoom = on,
         }
     }
 
-    /// The switches to pass, in a stable order.
+    /// The switches to pass, in a stable order: only where the choice differs from the client's default.
     pub fn flags(&self) -> Vec<&'static str> {
-        Extra::ALL.iter().copied().filter(|e| self.get(*e)).map(Extra::flag).collect()
+        Extra::ALL.iter().copied().filter(|e| self.get(*e) != e.default_on()).map(Extra::flag).collect()
+    }
+}
+
+/// A pick-list choice that is a number on the client's command line.
+macro_rules! numeric_choice {
+    ($(#[$meta:meta])* $name:ident, $flag:literal, default = $default:ident, { $($variant:ident => $value:literal, $label:literal;)+ }) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+        pub enum $name {
+            $( #[serde(rename = $value)] $variant, )+
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                $name::$default
+            }
+        }
+
+        impl $name {
+            pub const ALL: [$name; [$(stringify!($variant)),+].len()] = [$($name::$variant),+];
+            pub const FLAG: &'static str = $flag;
+
+            /// The value as the client wants it on the command line.
+            pub fn value(self) -> &'static str {
+                match self { $( $name::$variant => $value, )+ }
+            }
+
+            pub fn label(self) -> &'static str {
+                match self { $( $name::$variant => $label, )+ }
+            }
+
+            /// `--flag value`, or nothing when this is the client's own default.
+            pub fn args(self) -> Option<[&'static str; 2]> {
+                (self != $name::$default).then_some([$flag, self.value()])
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(self.label())
+            }
+        }
+    };
+}
+
+numeric_choice! {
+    /// `--render-distance`: how far the world is drawn, as a multiple of the original.
+    RenderDistance, "--render-distance", default = X2, {
+        X1 => "1", "Original";
+        X1_5 => "1.5", "1.5×";
+        X2 => "2", "2×  ·  client default";
+        X3 => "3", "3×";
+    }
+}
+
+numeric_choice! {
+    /// `--fps`: the frame cap. The game keeps its speed; movement is interpolated between cycles.
+    FpsCap, "--fps", default = Fps144, {
+        Fps30 => "30", "30";
+        Fps50 => "50", "50  ·  original";
+        Fps60 => "60", "60";
+        Fps100 => "100", "100";
+        Fps144 => "144", "144  ·  client default";
+        Fps240 => "240", "240";
+    }
+}
+
+numeric_choice! {
+    /// `--msaa`: OpenGL multisampling of the 3D view.
+    Msaa, "--msaa", default = Off, {
+        Off => "0", "Off";
+        X2 => "2", "MSAA 2×";
+        X4 => "4", "MSAA 4×";
+        X8 => "8", "MSAA 8×";
+    }
+}
+
+numeric_choice! {
+    /// `--render-scale`: OpenGL supersampling of the 3D view.
+    RenderScale, "--render-scale", default = X1, {
+        X1 => "1", "Off";
+        X1_5 => "1.5", "1.5×";
+        X2 => "2", "2×";
+    }
+}
+
+/// `--scale`: how large the game is drawn. The client picks from the screen height by default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Scale {
+    #[default]
+    Auto,
+    #[serde(rename = "1")]
+    X1,
+    #[serde(rename = "1.5")]
+    X1_5,
+    #[serde(rename = "2")]
+    X2,
+}
+
+impl Scale {
+    pub const ALL: [Scale; 4] = [Scale::Auto, Scale::X1, Scale::X1_5, Scale::X2];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Scale::Auto => "Fit the screen  ·  client default",
+            Scale::X1 => "1×  ·  original size",
+            Scale::X1_5 => "1.5×",
+            Scale::X2 => "2×",
+        }
+    }
+
+    pub fn args(self) -> Option<[&'static str; 2]> {
+        match self {
+            Scale::Auto => None,
+            Scale::X1 => Some(["--scale", "1"]),
+            Scale::X1_5 => Some(["--scale", "1.5"]),
+            Scale::X2 => Some(["--scale", "2"]),
+        }
+    }
+}
+
+impl std::fmt::Display for Scale {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+/// The client's graphics switches. Every default is the client's own, so an
+/// untouched profile passes nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Graphics {
+    pub render_distance: RenderDistance,
+    pub fps: FpsCap,
+    pub scale: Scale,
+    pub msaa: Msaa,
+    /// `--smaa`: SMAA 1x on the 3D view's edges (OpenGL).
+    pub smaa: bool,
+    pub render_scale: RenderScale,
+}
+
+impl Graphics {
+    /// The switches to pass, in a stable order.
+    pub fn args(&self) -> Vec<&'static str> {
+        let mut out = Vec::new();
+        for pair in [self.render_distance.args(), self.fps.args(), self.scale.args(), self.msaa.args(), self.render_scale.args()].into_iter().flatten() {
+            out.extend(pair);
+        }
+        if self.smaa {
+            out.push("--smaa");
+        }
+        out
     }
 }
 
@@ -205,7 +386,12 @@ pub struct Settings {
     pub custom_keys: Option<PathBuf>,
     pub renderer: Renderer,
     pub extras: Extras,
+    pub graphics: Graphics,
     pub world: u16,
+    /// `--debug`: ids and tile coordinates on right-click menus.
+    pub debug: bool,
+    /// Anything else for the client's command line, appended last (`--lang german`, `--dev-commands`, ...).
+    pub extra_client_args: String,
     pub java: JavaSource,
     pub max_heap_gb: u8,
     pub extra_jvm_args: String,
@@ -231,7 +417,10 @@ impl Default for Settings {
             custom_keys: None,
             renderer: Renderer::Auto,
             extras: Extras::default(),
+            graphics: Graphics::default(),
             world: DEFAULT_WORLD,
+            debug: false,
+            extra_client_args: String::new(),
             java: JavaSource::Managed,
             max_heap_gb: DEFAULT_HEAP_GB,
             extra_jvm_args: String::new(),
@@ -325,20 +514,25 @@ mod tests {
         assert_eq!(s.server.host(), OFFICIAL_HOST);
         assert_eq!(s.server.port(), DEFAULT_PORT);
         assert_eq!(s.renderer, Renderer::Auto);
-        assert!(s.extras.flags().is_empty());
+        assert!(s.extras.flags().is_empty(), "client defaults pass no gameplay flags");
+        assert!(s.graphics.args().is_empty(), "client defaults pass no graphics flags");
+        assert!(s.extras.shift_drop && s.extras.zoom);
         assert_eq!(s.world, 1);
     }
 
     #[test]
     fn round_trips_and_ignores_unknown_fields() {
         let json = r#"{"channel":"development","server":{"kind":"custom","host":"10.0.0.2","port":1234},"custom_keys":"/srv/game.properties",
-            "renderer":"hd","extras":{"xp_drops":true},"world":2,"java":{"source":"custom","path":"/opt/jdk"},"future_field":1}"#;
+            "renderer":"hd","extras":{"xp_drops":true,"zoom":false},"graphics":{"fps":"60","msaa":"4","smaa":true,"scale":"1.5"},
+            "world":2,"debug":true,"java":{"source":"custom","path":"/opt/jdk"},"future_field":1}"#;
         let s: Settings = serde_json::from_str(json).unwrap();
         assert_eq!(s.channel, Channel::Development);
         assert_eq!(s.server, Server::Custom { host: "10.0.0.2".into(), port: 1234 });
         assert_eq!(s.keys_file(), Some(&PathBuf::from("/srv/game.properties")));
         assert_eq!(s.renderer, Renderer::Hd);
-        assert_eq!(s.extras.flags(), vec!["--xp-drops"]);
+        assert_eq!(s.extras.flags(), vec!["--xp-drops", "--no-zoom"]);
+        assert_eq!(s.graphics.args(), vec!["--fps", "60", "--scale", "1.5", "--msaa", "4", "--smaa"]);
+        assert!(s.debug);
         assert_eq!(s.java, JavaSource::Custom { path: PathBuf::from("/opt/jdk") });
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back, s);

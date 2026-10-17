@@ -21,7 +21,10 @@ https://greghib.github.io/void/ (iced GUI over a UI-free core crate).
 
 - Client command line: `java -Xms.. -Xmx.. [-XX:+UseZGC] <extra jvm args> -jar client/runetek5-634-<sha12>.jar
   --address <host> --port <port> [--world n] [--keys <game.properties>] [--toolkit hd|opengl|java]
-  [--tile-markers] [--xp-drops] [--npc-labels] [--ground-items]` (see `launch.rs` tests). Each install is its
+  [gameplay: --tile-markers --xp-drops --npc-labels --ground-items --no-shift-drop --no-zoom]
+  [graphics: --render-distance --fps --scale --msaa --render-scale --smaa] [--debug] <extra client args>`
+  (see `launch.rs` tests). A switch is only emitted when the setting differs from the client's default
+  (`settings.rs`: `Extra::default_on`, the `numeric_choice!` enums' `default`). Each install is its
   own jar so updates never replace a jar a running client holds; `prune_old_jars` removes the rest.
 - Client releases: GitHub `2011Scape/634-client`. Stable = `releases/latest/download/<file>`, Development =
   `releases/download/dev/<file>`. The jar is `runetek5-634-<version>.jar` (ignore `-browser-` zips); version and

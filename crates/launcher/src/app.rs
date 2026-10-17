@@ -329,6 +329,38 @@ impl App {
                 self.settings.extras.set(extra, on);
                 self.save()
             }
+            Message::RenderDistancePicked(v) => {
+                self.settings.graphics.render_distance = v;
+                self.save()
+            }
+            Message::FpsPicked(v) => {
+                self.settings.graphics.fps = v;
+                self.save()
+            }
+            Message::ScalePicked(v) => {
+                self.settings.graphics.scale = v;
+                self.save()
+            }
+            Message::MsaaPicked(v) => {
+                self.settings.graphics.msaa = v;
+                self.save()
+            }
+            Message::SmaaToggled(on) => {
+                self.settings.graphics.smaa = on;
+                self.save()
+            }
+            Message::RenderScalePicked(v) => {
+                self.settings.graphics.render_scale = v;
+                self.save()
+            }
+            Message::DebugToggled(on) => {
+                self.settings.debug = on;
+                self.save()
+            }
+            Message::ExtraClientArgsChanged(args) => {
+                self.settings.extra_client_args = args;
+                self.save()
+            }
             Message::WorldChanged(world) => {
                 self.form.world = world;
                 match validate_world(&self.form.world) {
