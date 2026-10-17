@@ -1,0 +1,7 @@
+/target
+/out
+/dist
+/.cargo-home
+/AppDir
+*.part
+/.idea

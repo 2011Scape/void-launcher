@@ -1,0 +1,142 @@
+name: Release
+
+# Two release channels, the same scheme as 634-client:
+#   Stable       a tag vX.Y.Z publishes a release of that name; GitHub's "latest" is the newest of them.
+#   Development  every push to main rebuilds the one pre-release tagged "dev" (the tag moved to the
+#                commit, the release made again with the new files), versioned <cargo>-dev.<sha>.
+# A pull request that touches this file is a dry run: it builds everything and publishes nothing.
+#
+# Every release carries: void-launcher-windows-x86_64.exe, void-launcher-linux-x86_64,
+# void-launcher-linux-x86_64.AppImage, void-launcher-macos-universal.app.zip, manifest.json
+# (read by the launcher's self-updater) and SHA256SUMS.
+#
+# Cut a release: bump `version` in Cargo.toml, commit, then `git tag v1.2.0 && git push origin v1.2.0`
+# (`just release 1.2.0` does all three). The check job refuses a tag that does not match Cargo.toml.
+on:
+  push:
+    tags: ["v*"]
+    branches: [main]
+  pull_request:
+    paths: [".github/workflows/release.yml", "ci/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  # One timestamp for every job, so manifest.json and the binaries agree.
+  BUILT_AT: ${{ github.event.head_commit.timestamp || github.event.pull_request.updated_at }}
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: ci/check-version.sh
+
+  build:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x86_64
+            os: ubuntu-22.04
+          - target: windows-x86_64
+            os: windows-latest
+          - target: macos-universal
+            os: macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Linux build dependencies
+        if: matrix.target == 'linux-x86_64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxkbcommon-dev libwayland-dev libfuse2 file binutils
+      - name: Build and package
+        shell: bash
+        run: ci/build.sh "${{ matrix.target }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: out-${{ matrix.target }}
+          path: |
+            out/void-launcher-*
+            !out/*-apple-darwin
+          if-no-files-found: error
+
+  dist:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: out-*
+          path: out
+          merge-multiple: true
+      - name: Assemble manifest.json and SHA256SUMS
+        run: |
+          ci/make-dist.sh
+          cat dist/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: dist
+    # A stable tag, or a push to main; never a pull request's dry run.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Check the checksums
+        working-directory: dist
+        run: sha256sum -c SHA256SUMS
+      - name: Publish the stable release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/void-launcher-* dist/manifest.json dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --title "Void Launcher ${GITHUB_REF_NAME#v}" --generate-notes
+      # The dev tag is moved to this commit, the old pre-release removed and a new one made from it:
+      # the page https://github.com/<repo>/releases/tag/dev stays the same.
+      - name: Publish the development build
+        if: github.ref == 'refs/heads/main'
+        run: |
+          source dist/build.env
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/dev" -f sha="$GITHUB_SHA" -F force=true \
+            || gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/dev" -f sha="$GITHUB_SHA"
+          gh release delete dev --repo "$GITHUB_REPOSITORY" --yes || true
+          {
+            echo "Development build \`$VERSION\` from \`main\` at ${GITHUB_SHA::7}."
+            echo
+            echo "This pre-release is replaced by every push to main. The [latest stable release](https://github.com/$GITHUB_REPOSITORY/releases/latest) is the one to keep."
+          } > notes.md
+          gh release create dev dist/void-launcher-* dist/manifest.json dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --title "Development build $VERSION" --prerelease --notes-file notes.md

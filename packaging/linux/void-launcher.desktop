@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Void
+Comment=Void launcher: RuneScape revived
+Exec=void-launcher
+Icon=void-launcher
+Terminal=false
+Categories=Game;
+Keywords=void;2011scape;runescape;rsps;
+StartupWMClass=void-launcher
