@@ -17,8 +17,9 @@ suitable Java is available, and starts the game with the options you choose.
 `SHA256SUMS` and `manifest.json` are published next to every build. All releases:
 <https://github.com/2011Scape/void-launcher/releases>
 
-- **Windows:** the executable is not code-signed, so SmartScreen may say "Windows protected your PC".
-  Click "More info", then "Run anyway".
+- **Windows:** SmartScreen may say "Windows protected your PC" until the signed builds have earned a
+  download reputation. Click "More info", then "Run anyway". (Releases are Authenticode-signed through
+  [SignPath Foundation](https://signpath.org/about) once the project is onboarded; see `.github/workflows/release.yml`.)
 - **macOS:** the app is not notarized. After unzipping, right-click `Void.app` and choose *Open*.
   On macOS 15, open it once, then allow it under *System Settings > Privacy & Security > Open Anyway*.
   Or run `xattr -dr com.apple.quarantine ~/Downloads/Void.app`.

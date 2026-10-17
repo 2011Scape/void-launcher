@@ -55,6 +55,12 @@ https://greghib.github.io/void/ (iced GUI over a UI-free core crate).
   Cinzel (display), Inter Tight (UI), JetBrains Mono (code), all OFL.
 - Release: bump `version` in `Cargo.toml`, commit, tag `vX.Y.Z` (`just release X.Y.Z`). The `check` job fails a tag
   that does not match `Cargo.toml`. Every push to `main` republishes the `dev` pre-release.
+- Windows code signing: `release.yml`'s `sign-windows` job sends the exe to SignPath (SignPath Foundation, free for
+  OSS) and `dist` packs the signed copy, so `manifest.json`/`SHA256SUMS` always describe what is published. It
+  activates when repository variables `SIGNPATH_ORGANIZATION_ID` (+ optional `SIGNPATH_PROJECT_SLUG`, default
+  `void-launcher`) and secret `SIGNPATH_API_TOKEN` exist; policies are `test-signing` (main) and `release-signing`
+  (tags, needs a maintainer's approval in the SignPath portal, job waits up to 2 h). Not run for pull requests.
+  macOS still needs an Apple Developer ID + notarization (paid); Linux needs nothing.
 - Windows Defender once flagged an unsigned predecessor build as `Trojan:Win32/Wacatac.B!ml` (a cloud ML verdict on
   low-prevalence unsigned binaries). Mitigations kept: full version-info block (`build.rs`), `strip = "debuginfo"` so the
   symbol table stays, no registry reads for the OS version. Code-signing is the real fix.

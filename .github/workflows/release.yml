@@ -6,6 +6,9 @@ name: Release
 #                commit, the release made again with the new files), versioned <cargo>-dev.<sha>.
 # A pull request that touches this file is a dry run: it builds everything and publishes nothing.
 #
+# The Windows exe is Authenticode-signed by SignPath when the SIGNPATH_* repository variables and
+# the SIGNPATH_API_TOKEN secret are set (see the sign-windows job); otherwise it ships unsigned.
+#
 # Every release carries: void-launcher-windows-x86_64.exe, void-launcher-linux-x86_64,
 # void-launcher-linux-x86_64.AppImage, void-launcher-macos-universal.app.zip, manifest.json
 # (read by the launcher's self-updater) and SHA256SUMS.
@@ -80,8 +83,53 @@ jobs:
             !out/*-apple-darwin
           if-no-files-found: error
 
-  dist:
+  # Authenticode-signs the Windows exe through SignPath (free for open source via the
+  # SignPath Foundation). Active only once the repository variables exist; until then the
+  # exe ships unsigned. Tags use the release-signing policy, which waits for a maintainer's
+  # approval in the SignPath portal; everything else uses test-signing.
+  sign-windows:
     needs: build
+    if: github.event_name != 'pull_request' && vars.SIGNPATH_ORGANIZATION_ID != ''
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Find the Windows build artifact
+        id: artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" -q '.artifacts[] | select(.name == "out-windows-x86_64") | .id')"
+          [ -n "$id" ] || { echo "no out-windows-x86_64 artifact"; exit 1; }
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+      - name: Submit to SignPath
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'void-launcher' }}
+          signing-policy-slug: ${{ startsWith(github.ref, 'refs/tags/v') && 'release-signing' || 'test-signing' }}
+          github-artifact-id: ${{ steps.artifact.outputs.id }}
+          wait-for-completion: true
+          # release-signing needs a human click; give them a while.
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: signed
+      - name: Check the signature
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends osslsigncode
+          ls -la signed
+          osslsigncode verify -in signed/void-launcher-windows-x86_64.exe -CAfile /etc/ssl/certs/ca-certificates.crt || osslsigncode verify -in signed/void-launcher-windows-x86_64.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: out-windows-x86_64-signed
+          path: signed/void-launcher-windows-x86_64.exe
+          if-no-files-found: error
+
+  dist:
+    needs: [build, sign-windows]
+    # Run whether signing ran or was skipped, but not when it failed.
+    if: always() && needs.build.result == 'success' && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped')
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -89,9 +137,21 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          pattern: out-*
+          pattern: out-{linux-x86_64,macos-universal}
           path: out
           merge-multiple: true
+      - name: Windows exe, signed
+        if: needs.sign-windows.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: out-windows-x86_64-signed
+          path: out
+      - name: Windows exe, unsigned
+        if: needs.sign-windows.result != 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: out-windows-x86_64
+          path: out
       - name: Assemble manifest.json and SHA256SUMS
         run: |
           ci/make-dist.sh
@@ -105,7 +165,7 @@ jobs:
   publish:
     needs: dist
     # A stable tag, or a push to main; never a pull request's dry run.
-    if: github.event_name == 'push'
+    if: always() && needs.dist.result == 'success' && github.event_name == 'push'
     runs-on: ubuntu-22.04
     permissions:
       contents: write
