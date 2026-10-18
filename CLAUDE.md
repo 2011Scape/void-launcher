@@ -53,6 +53,10 @@ https://greghib.github.io/void/ (iced GUI over a UI-free core crate).
   otherwise write to the real `~/.jagex_cache_32`.
 - Design tokens are copied from the site's `style/tokens/*.css`; keep `theme/mod.rs` in step with it. Fonts:
   Cinzel (display), Inter Tight (UI), JetBrains Mono (code), all OFL.
+- Branch rules (GitHub rulesets): `main` needs a PR (squash/rebase only), the `check` status, linear history, no
+  force-push; `v*` tags can only be created by repository admins. Admins bypass both, which is what lets
+  `just release` push to `main` and tag directly; everyone else goes through a PR. The `dev` tag is deliberately
+  outside the tag rule because the Release workflow moves it with the Actions token.
 - Release: bump `version` in `Cargo.toml`, commit, tag `vX.Y.Z` (`just release X.Y.Z`). The `check` job fails a tag
   that does not match `Cargo.toml`. Every push to `main` republishes the `dev` pre-release.
 - Windows code signing: `release.yml`'s `sign-windows` job sends the exe to SignPath (SignPath Foundation, free for
