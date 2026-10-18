@@ -163,7 +163,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: dist
+    needs: [dist, sign-windows]
     # A stable tag, or a push to main; never a pull request's dry run.
     if: always() && needs.dist.result == 'success' && github.event_name == 'push'
     runs-on: ubuntu-22.04
@@ -171,6 +171,9 @@ jobs:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
+      SIGNING_NOTE: ${{ needs.sign-windows.result == 'success'
+        && 'The Windows executable is Authenticode-signed. Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).'
+        || 'The Windows executable is not yet code-signed; if SmartScreen appears choose More info, then Run anyway.' }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -182,8 +185,17 @@ jobs:
       - name: Publish the stable release
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
+          {
+            echo "Pick the file for your system; the launcher keeps itself and the game client up to date afterwards."
+            echo
+            echo "- Windows 10/11 (64-bit): \`void-launcher-windows-x86_64.exe\`"
+            echo "- macOS 10.15+ (Intel and Apple Silicon): \`void-launcher-macos-universal.app.zip\` (not notarized: right-click the app and choose Open the first time)"
+            echo "- Linux: \`void-launcher-linux-x86_64.AppImage\` (make it executable first) or the plain binary"
+            echo
+            echo "$SIGNING_NOTE"
+          } > notes.md
           gh release create "$GITHUB_REF_NAME" dist/void-launcher-* dist/manifest.json dist/SHA256SUMS \
-            --repo "$GITHUB_REPOSITORY" --title "Void Launcher ${GITHUB_REF_NAME#v}" --generate-notes
+            --repo "$GITHUB_REPOSITORY" --title "Void Launcher ${GITHUB_REF_NAME#v}" --generate-notes --notes-file notes.md
       # The dev tag is moved to this commit, the old pre-release removed and a new one made from it:
       # the page https://github.com/<repo>/releases/tag/dev stays the same.
       - name: Publish the development build
@@ -197,6 +209,8 @@ jobs:
             echo "Development build \`$VERSION\` from \`main\` at ${GITHUB_SHA::7}."
             echo
             echo "This pre-release is replaced by every push to main. The [latest stable release](https://github.com/$GITHUB_REPOSITORY/releases/latest) is the one to keep."
+            echo
+            echo "$SIGNING_NOTE"
           } > notes.md
           gh release create dev dist/void-launcher-* dist/manifest.json dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --title "Development build $VERSION" --prerelease --notes-file notes.md

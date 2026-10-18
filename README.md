@@ -68,6 +68,21 @@ publishes a stable release, every push to `main` republishes the `dev` pre-relea
 documents how the version and channel baked into the binary are derived. Set `VOID_LOG=debug` for
 verbose logging; `ICED_BACKEND=tiny-skia` forces software rendering; `VOID_HOME` moves `~/.void`.
 
+## Code signing policy
+
+Free code signing on Windows is provided by [SignPath.io](https://signpath.io), certificate by the
+[SignPath Foundation](https://signpath.org). Every Windows release is built by the public GitHub
+Actions workflow in this repository and signed from that build; nothing is signed by hand.
+
+- Committers and reviewers: the [2011Scape](https://github.com/2011Scape) organization members.
+- Approvers (release signing): [@HarleyGilpin](https://github.com/HarleyGilpin).
+
+**Privacy:** the launcher contacts only `github.com` (to read and download client and launcher releases
+from 2011Scape/634-client and this repository) and `api.adoptium.net` (to download a Java runtime when
+you ask for one). It sends no telemetry and transfers no information to other networked systems unless
+you request it, for example by opening a bug report in your browser. The game client it starts has its
+own network behaviour, documented in [634-client](https://github.com/2011Scape/634-client).
+
 ## License
 
 AGPL-3.0. Fonts: Cinzel, Inter Tight and JetBrains Mono under the SIL Open Font License (see
