@@ -33,11 +33,14 @@ suitable Java is available, and starts the game with the options you choose.
   (`localhost`), or a custom host and port. A custom server can have its own keys: point the
   launcher at its `game.properties` and it is passed to the client with `--keys`.
 - **Renderer:** the client's own choice, 634HD (OpenGL 3.3), OpenGL, or Safe mode.
-- **Game, Graphics, Developer** settings cover the client's switches: tile markers, experience drops,
-  NPC and ground item labels, shift-drop, wider zoom, render distance, world id; frame rate cap,
-  interface scale, MSAA, SMAA, supersampling; the developer overlay (`--debug`) and a free-text field
-  for anything else (`--lang`, `--dev-commands`, ...). Every default is the client's own, so an untouched
-  profile passes no switches at all.
+- **Game, Graphics, Developer** settings cover the client's switches: shift-drop, wider zoom, render
+  distance, world id; frame rate cap, interface scale, MSAA, SMAA, supersampling; the developer overlay
+  (`--debug`) and a free-text field for anything else (`--lang`, `--plugins <dir>`, `--dev-commands`, ...).
+  Every default is the client's own, so an untouched profile passes no switches at all.
+- **Plugins:** tile markers, experience drops, NPC and ground item labels are client plugins. *Open plugins
+  folder* in Settings opens `~/.634-client/plugins` (`C:\Users\<you>\.634-client\plugins` on Windows); drop
+  plugin jars there and turn them on in the client's plugin manager. The button follows a `--plugins <dir>` or
+  `--no-plugins` you add under Developer, and a `-Duser.home=` under Java.
 - **Java:** finds a Java 21 to 25 on your system (JAVA_HOME, PATH, the usual install folders, the
   Windows registry, `java_home` on macOS), or installs a private Eclipse Temurin 21 runtime into
   `~/.void/runtime` with one click. Nothing else on your computer is changed.
@@ -49,8 +52,8 @@ suitable Java is available, and starts the game with the options you choose.
   your clipboard and opens a pre-filled issue on the client repository.
 
 Everything the launcher owns lives in `~/.void`: `launcher.json` (settings), `client/`, `runtime/`,
-`logs/`. The game's own files (`~/.jagex_cache_32`, `~/.634hd-settings.txt`, `~/.lwjgl/634-client`)
-belong to the client and are never touched.
+`logs/`. The game's own files (`~/.jagex_cache_32`, `~/.634hd-settings.txt`, `~/.lwjgl/634-client`,
+`~/.634-client`) belong to the client and are never touched.
 
 The client is started as
 `java -Xms… -Xmx… -XX:+UseZGC -jar runetek5-634-<sha>.jar --address <host> --port <port> [--world n] [--keys file] [--toolkit hd|opengl|java] [gameplay] [graphics] [--debug] [extra client args]`.

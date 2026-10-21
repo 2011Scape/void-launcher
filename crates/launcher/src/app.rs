@@ -413,6 +413,17 @@ impl App {
                 }
                 Task::none()
             }
+            Message::OpenPluginsFolder => {
+                match launch::plugins_dir(&self.settings, &self.paths) {
+                    Some(dir) => {
+                        if let Err(e) = open_folder(&dir) {
+                            self.notify(NoticeLevel::Error, format!("Couldn't open the plugins folder: {e}"));
+                        }
+                    }
+                    None => self.notify(NoticeLevel::Info, "Plugins are switched off by --no-plugins in the extra client arguments."),
+                }
+                Task::none()
+            }
             Message::OpenLink(link) => {
                 open_url(&link.url());
                 Task::none()

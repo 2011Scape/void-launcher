@@ -21,7 +21,7 @@ https://greghib.github.io/void/ (iced GUI over a UI-free core crate).
 
 - Client command line: `java -Xms.. -Xmx.. [-XX:+UseZGC] <extra jvm args> -jar client/runetek5-634-<sha12>.jar
   --address <host> --port <port> [--world n] [--keys <game.properties>] [--toolkit hd|opengl|java]
-  [gameplay: --tile-markers --xp-drops --npc-labels --ground-items --no-shift-drop --no-zoom]
+  [gameplay: --no-shift-drop --no-zoom]
   [graphics: --render-distance --fps --scale --msaa --render-scale --smaa] [--debug] <extra client args>`
   (see `launch.rs` tests). A switch is only emitted when the setting differs from the client's default
   (`settings.rs`: `Extra::default_on`, the `numeric_choice!` enums' `default`). Each install is its
@@ -34,6 +34,10 @@ https://greghib.github.io/void/ (iced GUI over a UI-free core crate).
   (GitHub answers 404 for private assets).
 - Java 21–25 (`MIN_JAVA`/`MAX_TESTED_JAVA`); the managed runtime is Temurin 21.
 - Never touch the client's own files: `~/.jagex_cache_32`, `~/.634hd-settings.txt`, `~/.lwjgl/634-client`.
+  `~/.634-client/plugins` is the client's plugin folder (from Java `user.home`); the launcher only opens it.
+  `launch::plugins_dir` resolves it the way the client does: `--plugins`/`--no-plugins` in the extra client args
+  beat `-Dclient.plugins=` in the extra JVM args, which beat `-Duser.home=`, which beats the real home.
+  Tile markers, XP drops, NPC and ground item labels are client plugins, not switches.
 - Crash pickup (`report.rs`): the JVM leaves `hs_err_pid*.log` in `~/.void` (the client's cwd); the launcher's
   panic hook writes `logs/launcher-crash-<stamp>.txt`. On boot the newest file newer than
   `settings.last_crash_seen` opens the bug-report dialog (copy → open pre-filled GitHub issue); with

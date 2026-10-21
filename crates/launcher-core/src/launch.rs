@@ -1,7 +1,7 @@
 //! Building the client command line and spawning it detached from the launcher.
 
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -9,7 +9,7 @@ use std::time::Duration;
 use crate::client::current_jar;
 use crate::error::{CoreError, IoContext};
 use crate::java::{JavaInstall, VmKind};
-use crate::paths::VoidPaths;
+use crate::paths::{VoidPaths, plugins_dir_under};
 use crate::settings::{DEFAULT_WORLD, Settings};
 
 /// Everything needed to start the client, fully resolved.
@@ -82,6 +82,50 @@ pub fn physical_memory_mb() -> Option<u64> {
     let system = System::new_with_specifics(RefreshKind::nothing().with_memory(MemoryRefreshKind::everything()));
     let bytes = system.total_memory();
     (bytes > 0).then_some(bytes / (1024 * 1024))
+}
+
+/// Where the client started from this profile will load plugins, or `None` when
+/// plugins are switched off. Mirrors the client (`RuneTek5.kt`, `PluginDirectory.kt`):
+/// `--plugins <dir>` / `--no-plugins` among the extra client arguments win over
+/// `-Dclient.plugins=<dir|none>` among the extra JVM arguments, which wins over the
+/// default `<user.home>/.634-client/plugins`, where `user.home` honours a
+/// `-Duser.home=<dir>` JVM argument. The last occurrence of each wins. A leading `~`
+/// is the (possibly overridden) home; a relative folder is relative to the client's
+/// working directory, which `build_plan` sets to `paths.root`.
+pub fn plugins_dir(settings: &Settings, paths: &VoidPaths) -> Option<PathBuf> {
+    let jvm = shlex::split(&settings.extra_jvm_args).unwrap_or_default();
+    let client = shlex::split(&settings.extra_client_args).unwrap_or_default();
+    let home = jvm.iter().rev().find_map(|a| a.strip_prefix("-Duser.home=")).filter(|h| !h.is_empty()).map_or_else(|| paths.home.clone(), PathBuf::from);
+    let mut property: Option<String> = jvm.iter().rev().find_map(|a| a.strip_prefix("-Dclient.plugins=")).map(str::to_owned);
+    let mut i = 0;
+    while i < client.len() {
+        match client[i].as_str() {
+            "--plugins" => {
+                i += 1;
+                property = Some(client.get(i).cloned().unwrap_or_default());
+            }
+            "--no-plugins" => property = Some("none".into()),
+            _ => {}
+        }
+        i += 1;
+    }
+    match property.as_deref() {
+        Some(p) if p.is_empty() || p.eq_ignore_ascii_case("none") => None,
+        Some(p) => Some(expand_client_path(p, &home, &paths.root)),
+        None => Some(plugins_dir_under(&home)),
+    }
+}
+
+/// `~`/`~/x` is the home; anything relative hangs off the client's working directory.
+fn expand_client_path(value: &str, home: &Path, cwd: &Path) -> PathBuf {
+    let expanded = if value == "~" {
+        home.to_path_buf()
+    } else if let Some(rest) = value.strip_prefix("~/") {
+        home.join(rest)
+    } else {
+        PathBuf::from(value)
+    };
+    if expanded.is_absolute() { expanded } else { cwd.join(expanded) }
 }
 
 pub fn build_plan(settings: &Settings, java: &JavaInstall, paths: &VoidPaths) -> LaunchPlan {
@@ -271,7 +315,7 @@ mod tests {
             server: Server::Custom { host: "10.0.0.5".into(), port: 1234 },
             custom_keys: Some("/srv/game.properties".into()),
             renderer: Renderer::Hd,
-            extras: Extras { tile_markers: true, npc_labels: true, shift_drop: false, ..Extras::default() },
+            extras: Extras { shift_drop: false, ..Extras::default() },
             graphics: Graphics { fps: FpsCap::Fps60, scale: Scale::X1, msaa: Msaa::X4, smaa: true, ..Graphics::default() },
             world: 2,
             debug: true,
@@ -281,6 +325,9 @@ mod tests {
             ..Settings::default()
         };
         let plan = build_plan_with_memory(&settings, &java(21, VmKind::HotSpot), &paths, Some(32_000));
+        // Rendered by the OS (`\` on Windows), so compare against the same rendering.
+        let jar = current_jar(&paths).to_string_lossy().into_owned();
+        assert_eq!(jar.replace('\\', "/"), "/home/u/.void/client/runetek5-634.jar");
         assert_eq!(
             args_of(&plan),
             vec![
@@ -290,7 +337,7 @@ mod tests {
                 "-Dfoo=1",
                 "-Dwindow.size=1280x900",
                 "-jar",
-                "/home/u/.void/client/runetek5-634.jar",
+                jar.as_str(),
                 "--address",
                 "10.0.0.5",
                 "--port",
@@ -301,8 +348,6 @@ mod tests {
                 "/srv/game.properties",
                 "--toolkit",
                 "hd",
-                "--tile-markers",
-                "--npc-labels",
                 "--no-shift-drop",
                 "--fps",
                 "60",
@@ -341,6 +386,50 @@ mod tests {
         assert!(!args.iter().any(|a| a == "--keys"));
         assert!(args.windows(2).any(|w| w == ["--address", "localhost"]));
         assert!(args.windows(2).any(|w| w == ["--toolkit", "java"]));
+    }
+
+    fn plugins_with(jvm: &str, client: &str) -> Option<PathBuf> {
+        let paths = VoidPaths::with_home("/home/u");
+        let settings = Settings { extra_jvm_args: jvm.into(), extra_client_args: client.into(), ..Settings::default() };
+        plugins_dir(&settings, &paths)
+    }
+
+    #[test]
+    fn plugins_dir_defaults_to_the_client_folder_under_home() {
+        assert_eq!(plugins_with("", ""), Some(PathBuf::from("/home/u/.634-client/plugins")));
+        assert_eq!(plugins_with("-Dfoo=1 -Dclient.fps=60", "--lang german"), Some(PathBuf::from("/home/u/.634-client/plugins")));
+    }
+
+    #[test]
+    fn plugins_dir_follows_a_user_home_override() {
+        assert_eq!(plugins_with("-Duser.home=/tmp/scratch", ""), Some(PathBuf::from("/tmp/scratch/.634-client/plugins")));
+        assert_eq!(plugins_with("-Duser.home=/a -Duser.home=/b", ""), Some(PathBuf::from("/b/.634-client/plugins")), "last wins");
+        assert_eq!(plugins_with("-Duser.home=", ""), Some(PathBuf::from("/home/u/.634-client/plugins")), "empty is ignored");
+        assert_eq!(plugins_with("-Duser.home=/tmp/scratch", "--plugins ~/mods"), Some(PathBuf::from("/tmp/scratch/mods")), "~ is the overridden home");
+    }
+
+    #[test]
+    fn plugins_dir_honours_the_client_switches() {
+        assert_eq!(plugins_with("", "--plugins /srv/mods"), Some(PathBuf::from("/srv/mods")));
+        assert_eq!(plugins_with("", "--plugins ~/mods"), Some(PathBuf::from("/home/u/mods")));
+        assert_eq!(plugins_with("", "--plugins ~"), Some(PathBuf::from("/home/u")));
+        assert_eq!(plugins_with("", "--plugins mods"), Some(PathBuf::from("/home/u/.void/mods")), "relative to the client's cwd");
+        assert_eq!(plugins_with("", "--plugins \"/my mods\""), Some(PathBuf::from("/my mods")), "quoted like a shell");
+        assert_eq!(plugins_with("", "--no-plugins"), None);
+        assert_eq!(plugins_with("", "--plugins /a --no-plugins"), None, "last wins");
+        assert_eq!(plugins_with("", "--no-plugins --plugins /a"), Some(PathBuf::from("/a")), "last wins");
+        assert_eq!(plugins_with("", "--plugins"), None, "a missing value starts nothing");
+    }
+
+    #[test]
+    fn plugins_dir_honours_the_client_property() {
+        assert_eq!(plugins_with("-Dclient.plugins=/srv/mods", ""), Some(PathBuf::from("/srv/mods")));
+        assert_eq!(plugins_with("-Dclient.plugins=~/mods", ""), Some(PathBuf::from("/home/u/mods")));
+        assert_eq!(plugins_with("-Dclient.plugins=none", ""), None);
+        assert_eq!(plugins_with("-Dclient.plugins=NONE", ""), None, "case-insensitive like the client");
+        assert_eq!(plugins_with("-Dclient.plugins=", ""), None, "empty means none");
+        assert_eq!(plugins_with("-Dclient.plugins=none", "--plugins /a"), Some(PathBuf::from("/a")), "the command line beats the property");
+        assert_eq!(plugins_with("-Dclient.plugins=/a", "--no-plugins"), None);
     }
 
     #[test]
