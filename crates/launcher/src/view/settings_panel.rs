@@ -7,6 +7,7 @@ use crate::links::Link;
 use crate::message::Message;
 use crate::state::{ClientState, HeapChoice, JavaSourceKind, JavaState, Panel, SelfUpdateState};
 use crate::theme::{self, style};
+use launcher_core::launch;
 use launcher_core::settings::{AfterLaunch, Extra, FpsCap, HEAP_CHOICES_GB, Msaa, RenderDistance, RenderScale, Scale};
 use launcher_core::version::Channel;
 
@@ -88,6 +89,8 @@ fn game(app: &App) -> Element<'_, Message> {
     if let Some(error) = &app.form.world_error {
         world = row![text(error.clone()).size(13).color(theme::EMBER_500)];
     }
+    // Follows --plugins / --no-plugins / -Duser.home from the extra arguments, like the client does.
+    let plugins = launch::plugins_dir(&app.settings, &app.paths);
     let mut extras = column![].spacing(10);
     for extra in Extra::ALL {
         extras = extras.push(
@@ -108,8 +111,18 @@ fn game(app: &App) -> Element<'_, Message> {
         world,
         vspace(4.0),
         label("Gameplay"),
-        muted("The client's own defaults are preselected. Most can also be toggled in game with a :: command."),
+        muted("The client's own defaults are preselected."),
         extras,
+        vspace(4.0),
+        label("Plugins"),
+        secondary_button("Open plugins folder", plugins.is_some().then_some(Message::OpenPluginsFolder)).width(Fill),
+        faint(match &plugins {
+            Some(dir) => format!(
+                "Drop plugin .jar files into {} and turn them on in the client's plugin manager. Only install plugins from people you trust.",
+                dir.display()
+            ),
+            None => "Plugins are switched off: the extra client arguments say --no-plugins.".to_string(),
+        }),
         vspace(4.0),
         choice_row("Render distance", pick_list(&RenderDistance::ALL[..], Some(app.settings.graphics.render_distance), Message::RenderDistancePicked)),
         faint("How far the world is drawn, as a multiple of the original distance."),

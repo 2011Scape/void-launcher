@@ -98,21 +98,18 @@ impl std::fmt::Display for Renderer {
     }
 }
 
-/// The client's gameplay switches. Some are on by default in the client and
+/// The client's gameplay switches. Both are on by default in the client and
 /// have a `--no-` flag; the launcher only emits a flag when the choice differs
-/// from the client's own default.
+/// from the client's own default. Tile markers, experience drops, NPC labels and
+/// ground item labels used to be switches too; they are plugins now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Extra {
-    TileMarkers,
-    XpDrops,
-    NpcLabels,
-    GroundItems,
     ShiftDrop,
     Zoom,
 }
 
 impl Extra {
-    pub const ALL: [Extra; 6] = [Extra::TileMarkers, Extra::XpDrops, Extra::NpcLabels, Extra::GroundItems, Extra::ShiftDrop, Extra::Zoom];
+    pub const ALL: [Extra; 2] = [Extra::ShiftDrop, Extra::Zoom];
 
     /// What the client does when nothing is passed.
     pub fn default_on(self) -> bool {
@@ -122,10 +119,6 @@ impl Extra {
     /// The flag that flips the client's default.
     pub fn flag(self) -> &'static str {
         match self {
-            Extra::TileMarkers => "--tile-markers",
-            Extra::XpDrops => "--xp-drops",
-            Extra::NpcLabels => "--npc-labels",
-            Extra::GroundItems => "--ground-items",
             Extra::ShiftDrop => "--no-shift-drop",
             Extra::Zoom => "--no-zoom",
         }
@@ -133,10 +126,6 @@ impl Extra {
 
     pub fn label(self) -> &'static str {
         match self {
-            Extra::TileMarkers => "Tile markers",
-            Extra::XpDrops => "Experience drops",
-            Extra::NpcLabels => "NPC labels",
-            Extra::GroundItems => "Ground item labels",
             Extra::ShiftDrop => "Shift-drop",
             Extra::Zoom => "Wider zoom",
         }
@@ -144,40 +133,29 @@ impl Extra {
 
     pub fn description(self) -> &'static str {
         match self {
-            Extra::TileMarkers => "Right-click a tile and choose Mark tile to outline it.",
-            Extra::XpDrops => "A \"+N Skill\" drop rises near the minimap when you gain experience.",
-            Extra::NpcLabels => "NPC names and combat levels above their heads.",
-            Extra::GroundItems => "The names and counts of items on each tile.",
             Extra::ShiftDrop => "Drop an item with Shift and a left click.",
             Extra::Zoom => "Let the mouse wheel zoom further out than the original range.",
         }
     }
 }
 
+/// Unknown keys (the switches that became plugins) are ignored when loading.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Extras {
-    pub tile_markers: bool,
-    pub xp_drops: bool,
-    pub npc_labels: bool,
-    pub ground_items: bool,
     pub shift_drop: bool,
     pub zoom: bool,
 }
 
 impl Default for Extras {
     fn default() -> Self {
-        Self { tile_markers: false, xp_drops: false, npc_labels: false, ground_items: false, shift_drop: true, zoom: true }
+        Self { shift_drop: true, zoom: true }
     }
 }
 
 impl Extras {
     pub fn get(&self, extra: Extra) -> bool {
         match extra {
-            Extra::TileMarkers => self.tile_markers,
-            Extra::XpDrops => self.xp_drops,
-            Extra::NpcLabels => self.npc_labels,
-            Extra::GroundItems => self.ground_items,
             Extra::ShiftDrop => self.shift_drop,
             Extra::Zoom => self.zoom,
         }
@@ -185,10 +163,6 @@ impl Extras {
 
     pub fn set(&mut self, extra: Extra, on: bool) {
         match extra {
-            Extra::TileMarkers => self.tile_markers = on,
-            Extra::XpDrops => self.xp_drops = on,
-            Extra::NpcLabels => self.npc_labels = on,
-            Extra::GroundItems => self.ground_items = on,
             Extra::ShiftDrop => self.shift_drop = on,
             Extra::Zoom => self.zoom = on,
         }
@@ -523,19 +497,27 @@ mod tests {
     #[test]
     fn round_trips_and_ignores_unknown_fields() {
         let json = r#"{"channel":"development","server":{"kind":"custom","host":"10.0.0.2","port":1234},"custom_keys":"/srv/game.properties",
-            "renderer":"hd","extras":{"xp_drops":true,"zoom":false},"graphics":{"fps":"60","msaa":"4","smaa":true,"scale":"1.5"},
+            "renderer":"hd","extras":{"shift_drop":false,"zoom":false},"graphics":{"fps":"60","msaa":"4","smaa":true,"scale":"1.5"},
             "world":2,"debug":true,"java":{"source":"custom","path":"/opt/jdk"},"future_field":1}"#;
         let s: Settings = serde_json::from_str(json).unwrap();
         assert_eq!(s.channel, Channel::Development);
         assert_eq!(s.server, Server::Custom { host: "10.0.0.2".into(), port: 1234 });
         assert_eq!(s.keys_file(), Some(&PathBuf::from("/srv/game.properties")));
         assert_eq!(s.renderer, Renderer::Hd);
-        assert_eq!(s.extras.flags(), vec!["--xp-drops", "--no-zoom"]);
+        assert_eq!(s.extras.flags(), vec!["--no-shift-drop", "--no-zoom"]);
         assert_eq!(s.graphics.args(), vec!["--fps", "60", "--scale", "1.5", "--msaa", "4", "--smaa"]);
         assert!(s.debug);
         assert_eq!(s.java, JavaSource::Custom { path: PathBuf::from("/opt/jdk") });
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back, s);
+    }
+
+    #[test]
+    fn switches_that_became_plugins_are_ignored() {
+        let json = r#"{"extras":{"tile_markers":true,"xp_drops":true,"npc_labels":true,"ground_items":true}}"#;
+        let s: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.extras, Extras::default());
+        assert!(s.extras.flags().is_empty(), "a profile from before the plugin system must not pass removed flags");
     }
 
     #[test]

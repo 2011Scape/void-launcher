@@ -33,3 +33,23 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Tests
         run: cargo test --workspace --locked
+
+  # The required `check` status stays Linux-only; this job catches platform-specific
+  # breakage (path rendering, Windows/macOS-only code and tests) without gating merges.
+  test-native:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Tests
+        run: cargo test --workspace --locked

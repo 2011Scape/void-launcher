@@ -69,6 +69,12 @@ impl VoidPaths {
     pub fn game_cache_dir(&self) -> PathBuf {
         self.home.join(".jagex_cache_32")
     }
+    /// Where the client loads plugin jars from (`~/.634-client/plugins`, derived
+    /// from Java's `user.home`, so it follows `home`, not `root`). Owned by the
+    /// client; the launcher only opens it for the player.
+    pub fn plugins_dir(&self) -> PathBuf {
+        plugins_dir_under(&self.home)
+    }
 
     /// Creates the launcher-owned directories. Idempotent.
     pub fn ensure_dirs(&self) -> io::Result<()> {
@@ -77,6 +83,12 @@ impl VoidPaths {
         }
         Ok(())
     }
+}
+
+/// The client's default plugin folder for a given Java `user.home`
+/// (`PluginPaths.kt`: `<home>/.634-client/plugins`).
+pub fn plugins_dir_under(home: &Path) -> PathBuf {
+    home.join(".634-client").join("plugins")
 }
 
 /// Opens a folder in the platform file manager, creating it first.
@@ -96,5 +108,22 @@ mod tests {
         assert_eq!(p.client_jar(), PathBuf::from("/home/u/.void/client/runetek5-634.jar"));
         assert_eq!(p.launcher_json(), PathBuf::from("/home/u/.void/launcher.json"));
         assert_eq!(p.game_cache_dir(), PathBuf::from("/home/u/.jagex_cache_32"));
+        assert_eq!(p.plugins_dir(), PathBuf::from("/home/u/.634-client/plugins"));
+    }
+
+    /// The client builds the same path from Java's `user.home`, which is the
+    /// profile folder on Windows (`FOLDERID_Profile`, what `dirs::home_dir` returns).
+    #[cfg(windows)]
+    #[test]
+    fn plugins_dir_follows_the_windows_profile() {
+        let p = VoidPaths::with_home(r"C:\Users\u");
+        assert_eq!(p.plugins_dir(), PathBuf::from(r"C:\Users\u\.634-client\plugins"));
+        assert_eq!(p.root, PathBuf::from(r"C:\Users\u\.void"));
+    }
+
+    #[test]
+    fn plugins_dir_is_under_home_not_void_home() {
+        let p = VoidPaths { home: PathBuf::from("h"), root: PathBuf::from("elsewhere") };
+        assert_eq!(p.plugins_dir(), PathBuf::from("h").join(".634-client").join("plugins"));
     }
 }

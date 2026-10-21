@@ -45,6 +45,7 @@ pub enum Message {
     CancelDownload,
     RetryClient,
     OpenLogsFolder,
+    OpenPluginsFolder,
     OpenLink(Link),
     OpenUrl(String),
     CheckForUpdates,
